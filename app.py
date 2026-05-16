@@ -4,16 +4,15 @@ from datetime import date, datetime
 from pathlib import Path
 import calendar
 
-st.set_page_config(page_title="物品管理アプリ Ver1.3", layout="wide")
+st.set_page_config(page_title="物品管理アプリ Ver1.4", layout="wide")
 
 # ============================================================
-# 物品管理アプリ Ver1.3
-# ・物品担当者向けトップダッシュボード
-# ・登録 / 検索 / 更新 / 削除
-# ・在庫ショート予防
-# ・月間注文スケジュール
-# ・月末請求
-# ・FEED発注補助
+# 物品管理アプリ Ver1.4
+# ・管理者 / 職員 ログイン分岐
+# ・職員は「使用記録 登録」「使用記録 検索・更新・削除」のみ
+# ・管理者は全機能利用可能
+# ・物品担当者向けダッシュボード
+# ・在庫ショート予防 / 月末請求 / FEED発注補助
 # ============================================================
 
 DATA = Path("data")
@@ -29,6 +28,79 @@ USER_COLS = ["利用者ID", "利用者名", "請求先", "備考"]
 ITEM_COLS = ["物品ID", "物品名", "単価", "最低在庫", "FEED商品URL", "備考"]
 USAGE_COLS = ["記録ID", "日付", "利用者", "物品", "数量", "単価", "金額", "備考", "登録日時"]
 STOCK_COLS = ["物品", "現在庫", "更新日時"]
+
+# ------------------------------------------------------------
+# ログイン設定
+# 初期ID / パスワード
+# 管理者：admin / admin123
+# 職員：staff / staff123
+# ※本番運用前に必ず変更してください
+# ------------------------------------------------------------
+ACCOUNTS = {
+    "admin": {"password": "admin123", "role": "管理者", "name": "管理者"},
+    "staff": {"password": "staff123", "role": "職員", "name": "職員"},
+}
+
+ADMIN_MENUS = [
+    "管理ダッシュボード",
+    "使用記録 登録",
+    "使用記録 検索・更新・削除",
+    "現在庫 登録・更新",
+    "月間集計",
+    "請求書作成",
+    "FEED発注候補",
+    "利用者マスタ 登録・更新・削除",
+    "物品マスタ 登録・更新・削除",
+    "データ確認",
+]
+
+STAFF_MENUS = [
+    "使用記録 登録",
+    "使用記録 検索・更新・削除",
+]
+
+
+def login_screen():
+    st.title("📦 物品管理アプリ Ver1.4")
+    st.subheader("ログイン")
+
+    with st.form("login_form"):
+        login_id = st.text_input("ログインID")
+        password = st.text_input("パスワード", type="password")
+        ok = st.form_submit_button("ログイン")
+
+    if ok:
+        account = ACCOUNTS.get(login_id)
+        if account and account["password"] == password:
+            st.session_state["logged_in"] = True
+            st.session_state["login_id"] = login_id
+            st.session_state["role"] = account["role"]
+            st.session_state["user_name"] = account["name"]
+            st.success("ログインしました。")
+            st.rerun()
+        else:
+            st.error("ログインIDまたはパスワードが違います。")
+
+    st.info("初期設定：管理者 admin / admin123　職員 staff / staff123")
+
+
+def require_login():
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
+
+    if not st.session_state["logged_in"]:
+        login_screen()
+        st.stop()
+
+
+def logout_button():
+    with st.sidebar:
+        st.markdown("---")
+        st.write(f"ログイン：{st.session_state.get('user_name', '')}")
+        st.write(f"権限：{st.session_state.get('role', '')}")
+        if st.button("ログアウト"):
+            st.session_state.clear()
+            st.rerun()
 
 
 def now_id(prefix):
@@ -142,36 +214,23 @@ def month_schedule():
     last_day = calendar.monthrange(today.year, today.month)[1]
 
     rows = [
-        {
-            "時期": "月初 1〜5日",
-            "やること": "棚卸・現在庫確認",
-            "目的": "前月のズレを直す",
-            "状態": "今月の土台作り"
-        },
-        {
-            "時期": "10日前後",
-            "やること": "中間在庫チェック",
-            "目的": "急な減りに気づく",
-            "状態": "ショート予防"
-        },
-        {
-            "時期": "20日前後",
-            "やること": "FEED発注候補確認",
-            "目的": "月末前に不足を防ぐ",
-            "状態": "発注判断"
-        },
-        {
-            "時期": f"月末 {last_day}日前後",
-            "やること": "利用者別請求確認",
-            "目的": "月末請求を作成",
-            "状態": "請求処理"
-        },
+        {"時期": "月初 1〜5日", "やること": "棚卸・現在庫確認", "目的": "前月のズレを直す", "状態": "今月の土台作り"},
+        {"時期": "10日前後", "やること": "中間在庫チェック", "目的": "急な減りに気づく", "状態": "ショート予防"},
+        {"時期": "20日前後", "やること": "FEED発注候補確認", "目的": "月末前に不足を防ぐ", "状態": "発注判断"},
+        {"時期": f"月末 {last_day}日前後", "やること": "利用者別請求確認", "目的": "月末請求を作成", "状態": "請求処理"},
     ]
 
     return pd.DataFrame(rows)
 
 
+# ------------------------------------------------------------
+# ログイン必須
+# ------------------------------------------------------------
+require_login()
+
+# ------------------------------------------------------------
 # データ読込
+# ------------------------------------------------------------
 users = load_df(USERS, USER_COLS)
 items = load_df(ITEMS, ITEM_COLS)
 usage = load_df(USAGE, USAGE_COLS)
@@ -198,24 +257,14 @@ save_df(usage, USAGE, USAGE_COLS)
 stock = sync_stock(items, stock)
 save_df(stock, STOCK, STOCK_COLS)
 
-st.title("📦 物品管理アプリ Ver1.3")
-st.caption("物品担当者向けダッシュボード／在庫ショート予防／FEED発注補助／月末請求")
+st.title("📦 物品管理アプリ Ver1.4")
+st.caption("管理者・職員ログイン対応／在庫ショート予防／FEED発注補助／月末請求")
 
-menu = st.sidebar.radio(
-    "メニュー",
-    [
-        "管理ダッシュボード",
-        "使用記録 登録",
-        "使用記録 検索・更新・削除",
-        "現在庫 登録・更新",
-        "月間集計",
-        "請求書作成",
-        "FEED発注候補",
-        "利用者マスタ 登録・更新・削除",
-        "物品マスタ 登録・更新・削除",
-        "データ確認",
-    ],
-)
+role = st.session_state.get("role", "職員")
+available_menus = ADMIN_MENUS if role == "管理者" else STAFF_MENUS
+
+menu = st.sidebar.radio("メニュー", available_menus)
+logout_button()
 
 # ============================================================
 # 管理ダッシュボード
@@ -246,13 +295,10 @@ if menu == "管理ダッシュボード":
 
     with col1:
         st.metric("登録物品数", f"{total_items}件")
-
     with col2:
         st.metric("在庫0", f"{stock_zero}件")
-
     with col3:
         st.metric("発注必要", f"{order_needed}件")
-
     with col4:
         st.metric("今月物品費", f"{month_total:,}円")
 
