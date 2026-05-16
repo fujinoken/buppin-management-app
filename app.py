@@ -4,16 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 import calendar
 
-st.set_page_config(page_title="物品管理アプリ Ver1.5", layout="wide")
-
-# ============================================================
-# 物品管理アプリ Ver1.5
-# ・管理者 / 職員 ログイン分岐
-# ・職員は「使用記録 登録」「使用記録 検索・更新・削除」のみ
-# ・管理者は全機能利用可能
-# ・物品担当者向けダッシュボード
-# ・在庫ショート予防 / 月末請求 / FEED発注補助
-# ============================================================
+st.set_page_config(page_title="物品管理アプリ Ver1.5.1", layout="wide")
 
 DATA = Path("data")
 DATA.mkdir(exist_ok=True)
@@ -31,16 +22,60 @@ USAGE_COLS = ["記録ID", "日付", "利用者", "物品", "数量", "単価", "
 STOCK_COLS = ["物品", "現在庫", "更新日時"]
 ACCOUNT_COLS = ["ログインID", "パスワード", "権限", "表示名"]
 
-# ------------------------------------------------------------
-# ログイン設定
-# 初期ID / パスワード
-# 管理者：admin / admin123
-# 職員：staff / staff123
-# ※管理者ログイン後、「ログイン設定」メニューから変更できます。
-# ------------------------------------------------------------
+ADMIN_MENUS = [
+    "管理ダッシュボード",
+    "使用記録 登録",
+    "使用記録 検索・更新・削除",
+    "現在庫 登録・更新",
+    "月間集計",
+    "請求書作成",
+    "FEED発注候補",
+    "利用者マスタ 登録・更新・削除",
+    "物品マスタ 登録・更新・削除",
+    "ログイン設定",
+    "データ確認",
+]
+
+STAFF_MENUS = [
+    "使用記録 登録",
+    "使用記録 検索・更新・削除",
+]
+
+
+def now_id(prefix):
+    return f"{prefix}{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+
+
+def safe_int(v):
+    try:
+        if pd.isna(v) or v == "":
+            return 0
+        return int(float(v))
+    except Exception:
+        return 0
+
+
+def load_df(path, cols):
+    if path.exists():
+        df = pd.read_excel(path)
+        for c in cols:
+            if c not in df.columns:
+                df[c] = ""
+        df = df[cols].fillna("")
+        df.to_excel(path, index=False)
+        return df
+
+    df = pd.DataFrame(columns=cols)
+    df.to_excel(path, index=False)
+    return df
+
+
+def save_df(df, path, cols):
+    df = df[cols].fillna("")
+    df.to_excel(path, index=False)
+
 
 def init_accounts():
-    """初回起動時にログイン用Excelを作成します。"""
     if not ACCOUNTS_FILE.exists():
         df = pd.DataFrame([
             {"ログインID": "admin", "パスワード": "admin123", "権限": "管理者", "表示名": "管理者"},
@@ -50,7 +85,6 @@ def init_accounts():
 
 
 def load_accounts():
-    """ログイン情報をExcelから読み込みます。"""
     init_accounts()
     df = pd.read_excel(ACCOUNTS_FILE)
     for c in ACCOUNT_COLS:
@@ -62,31 +96,12 @@ def load_accounts():
 
 
 def save_accounts(df):
-    """ログイン情報をExcelに保存します。"""
     df = df[ACCOUNT_COLS].fillna("")
     df.to_excel(ACCOUNTS_FILE, index=False)
 
-ADMIN_MENUS = [
-    "管理ダッシュボード",
-    "使用記録 登録",
-    "使用記録 検索・更新・削除",
-    "現在庫 登録・更新",
-    "月間集計",
-    "請求書作成",
-    "FEED発注候補",
-    "利用者マスタ 登録・更新・削除",
-    "物品マスタ 登録・更新・削除",
-    "データ確認",
-]
-
-STAFF_MENUS = [
-    "使用記録 登録",
-    "使用記録 検索・更新・削除",
-]
-
 
 def login_screen():
-    st.title("📦 物品管理アプリ Ver1.5")
+    st.title("📦 物品管理アプリ Ver1.5.1")
     st.subheader("ログイン")
 
     with st.form("login_form"):
@@ -134,39 +149,6 @@ def logout_button():
             st.rerun()
 
 
-def now_id(prefix):
-    return f"{prefix}{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-
-
-def safe_int(v):
-    try:
-        if pd.isna(v) or v == "":
-            return 0
-        return int(float(v))
-    except Exception:
-        return 0
-
-
-def load_df(path, cols):
-    if path.exists():
-        df = pd.read_excel(path)
-        for c in cols:
-            if c not in df.columns:
-                df[c] = ""
-        df = df[cols].fillna("")
-        df.to_excel(path, index=False)
-        return df
-
-    df = pd.DataFrame(columns=cols)
-    df.to_excel(path, index=False)
-    return df
-
-
-def save_df(df, path, cols):
-    df = df[cols].fillna("")
-    df.to_excel(path, index=False)
-
-
 def sync_stock(items_df, stock_df):
     rows = []
 
@@ -209,13 +191,7 @@ def make_stock_status(stock_df, items_df):
             "物品", "現在庫", "最低在庫", "不足数", "状態", "単価", "FEED商品URL"
         ])
 
-    merged = stock_df.merge(
-        items_df,
-        left_on="物品",
-        right_on="物品名",
-        how="left"
-    )
-
+    merged = stock_df.merge(items_df, left_on="物品", right_on="物品名", how="left")
     merged["現在庫"] = merged["現在庫"].apply(safe_int)
     merged["最低在庫"] = merged["最低在庫"].apply(safe_int)
     merged["単価"] = merged["単価"].apply(safe_int)
@@ -244,30 +220,21 @@ def month_schedule():
     today = date.today()
     last_day = calendar.monthrange(today.year, today.month)[1]
 
-    rows = [
+    return pd.DataFrame([
         {"時期": "月初 1〜5日", "やること": "棚卸・現在庫確認", "目的": "前月のズレを直す", "状態": "今月の土台作り"},
         {"時期": "10日前後", "やること": "中間在庫チェック", "目的": "急な減りに気づく", "状態": "ショート予防"},
         {"時期": "20日前後", "やること": "FEED発注候補確認", "目的": "月末前に不足を防ぐ", "状態": "発注判断"},
         {"時期": f"月末 {last_day}日前後", "やること": "利用者別請求確認", "目的": "月末請求を作成", "状態": "請求処理"},
-    ]
-
-    return pd.DataFrame(rows)
+    ])
 
 
-# ------------------------------------------------------------
-# ログイン必須
-# ------------------------------------------------------------
 require_login()
 
-# ------------------------------------------------------------
-# データ読込
-# ------------------------------------------------------------
 users = load_df(USERS, USER_COLS)
 items = load_df(ITEMS, ITEM_COLS)
 usage = load_df(USAGE, USAGE_COLS)
 stock = load_df(STOCK, STOCK_COLS)
 
-# 旧データ移行補助
 if not users.empty:
     mask = users["利用者ID"].astype(str).str.strip() == ""
     users.loc[mask, "利用者ID"] = [now_id("U") for _ in range(mask.sum())]
@@ -284,12 +251,11 @@ save_df(users, USERS, USER_COLS)
 save_df(items, ITEMS, ITEM_COLS)
 save_df(usage, USAGE, USAGE_COLS)
 
-# 在庫マスタ同期
 stock = sync_stock(items, stock)
 save_df(stock, STOCK, STOCK_COLS)
 
-st.title("📦 物品管理アプリ Ver1.5")
-st.caption("管理者パスワード設定対応／職員権限制限／在庫ショート予防／月末請求")
+st.title("📦 物品管理アプリ Ver1.5.1")
+st.caption("ログイン設定対応／職員権限制限／在庫ショート予防／月末請求／FEED発注補助")
 
 role = st.session_state.get("role", "職員")
 available_menus = ADMIN_MENUS if role == "管理者" else STAFF_MENUS
@@ -297,19 +263,15 @@ available_menus = ADMIN_MENUS if role == "管理者" else STAFF_MENUS
 menu = st.sidebar.radio("メニュー", available_menus)
 logout_button()
 
-# ============================================================
-# 管理ダッシュボード
-# ============================================================
+
 if menu == "管理ダッシュボード":
     st.subheader("📋 物品担当 管理ダッシュボード")
-    st.caption("今日まず見る画面です。在庫ショート・発注候補・月間スケジュールを一目で確認します。")
 
     stock_status = make_stock_status(stock, items)
 
     total_items = len(items)
     stock_zero = len(stock_status[stock_status["状態"] == "🔴 在庫0"]) if not stock_status.empty else 0
     order_needed = len(stock_status[stock_status["状態"] == "🔴 発注必要"]) if not stock_status.empty else 0
-    caution = len(stock_status[stock_status["状態"] == "🟡 注意"]) if not stock_status.empty else 0
 
     work_usage = usage.copy()
     if not work_usage.empty:
@@ -323,35 +285,24 @@ if menu == "管理ダッシュボード":
         month_total = 0
 
     col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("登録物品数", f"{total_items}件")
-    with col2:
-        st.metric("在庫0", f"{stock_zero}件")
-    with col3:
-        st.metric("発注必要", f"{order_needed}件")
-    with col4:
-        st.metric("今月物品費", f"{month_total:,}円")
+    col1.metric("登録物品数", f"{total_items}件")
+    col2.metric("在庫0", f"{stock_zero}件")
+    col3.metric("発注必要", f"{order_needed}件")
+    col4.metric("今月物品費", f"{month_total:,}円")
 
     st.markdown("---")
-
     left, right = st.columns([1.3, 1])
 
     with left:
         st.markdown("### 🔴 発注・注意が必要な物品")
-
         if stock_status.empty:
             st.info("物品マスタと在庫を登録してください。")
         else:
             alert = stock_status[stock_status["状態"].isin(["🔴 在庫0", "🔴 発注必要", "🟡 注意"])].copy()
-
             if alert.empty:
                 st.success("現在、在庫ショートの注意物品はありません。")
             else:
-                st.dataframe(
-                    alert[["状態", "物品", "現在庫", "最低在庫", "不足数", "FEED商品URL"]],
-                    use_container_width=True
-                )
+                st.dataframe(alert[["状態", "物品", "現在庫", "最低在庫", "不足数", "FEED商品URL"]], use_container_width=True)
 
                 st.markdown("#### FEED商品ページ")
                 for _, r in alert.iterrows():
@@ -364,7 +315,6 @@ if menu == "管理ダッシュボード":
         st.dataframe(month_schedule(), use_container_width=True, hide_index=True)
 
     st.markdown("---")
-
     c1, c2 = st.columns(2)
 
     with c1:
@@ -374,8 +324,7 @@ if menu == "管理ダッシュボード":
         else:
             month_usage["数量"] = month_usage["数量"].apply(safe_int)
             item_summary = month_usage.groupby("物品")[["数量", "金額"]].sum().reset_index()
-            item_summary = item_summary.sort_values("数量", ascending=False)
-            st.dataframe(item_summary, use_container_width=True)
+            st.dataframe(item_summary.sort_values("数量", ascending=False), use_container_width=True)
 
     with c2:
         st.markdown("### 👤 今月の利用者別物品費")
@@ -383,26 +332,18 @@ if menu == "管理ダッシュボード":
             st.info("今月の使用記録はまだありません。")
         else:
             user_summary = month_usage.groupby("利用者")[["金額"]].sum().reset_index()
-            user_summary = user_summary.sort_values("金額", ascending=False)
-            st.dataframe(user_summary, use_container_width=True)
+            st.dataframe(user_summary.sort_values("金額", ascending=False), use_container_width=True)
 
     st.markdown("---")
-
     st.markdown("### 📝 物品担当メモ・申し送り")
     memo = load_memo()
-    new_memo = st.text_area(
-        "次回発注予定日、注意物品、申し送りなどを記録できます。",
-        value=memo,
-        height=180
-    )
+    new_memo = st.text_area("次回発注予定日、注意物品、申し送りなどを記録できます。", value=memo, height=180)
 
     if st.button("担当メモを保存"):
         save_memo(new_memo)
         st.success("担当メモを保存しました。")
 
-# ============================================================
-# 使用記録 登録
-# ============================================================
+
 elif menu == "使用記録 登録":
     st.subheader("使用記録 登録")
 
@@ -452,9 +393,7 @@ elif menu == "使用記録 登録":
             st.success("使用記録を登録しました。在庫も減算しました。")
             st.rerun()
 
-# ============================================================
-# 使用記録 検索・更新・削除
-# ============================================================
+
 elif menu == "使用記録 検索・更新・削除":
     st.subheader("使用記録 検索・更新・削除")
 
@@ -465,15 +404,9 @@ elif menu == "使用記録 検索・更新・削除":
         work["日付_dt"] = pd.to_datetime(work["日付"], errors="coerce")
 
         col1, col2, col3 = st.columns(3)
-
-        with col1:
-            keyword = st.text_input("検索語（利用者・物品・備考）")
-
-        with col2:
-            year = st.number_input("年", 2024, 2035, date.today().year)
-
-        with col3:
-            month = st.number_input("月", 1, 12, date.today().month)
+        keyword = col1.text_input("検索語（利用者・物品・備考）")
+        year = col2.number_input("年", 2024, 2035, date.today().year)
+        month = col3.number_input("月", 1, 12, date.today().month)
 
         filtered = work[work["日付_dt"].dt.strftime("%Y-%m") == f"{year}-{month:02d}"].copy()
 
@@ -508,13 +441,7 @@ elif menu == "使用記録 検索・更新・削除":
                     index=item_list.index(str(row["物品"])) if str(row["物品"]) in item_list else 0
                 )
 
-                new_qty = st.number_input(
-                    "数量",
-                    min_value=1,
-                    max_value=9999,
-                    value=max(1, safe_int(row["数量"]))
-                )
-
+                new_qty = st.number_input("数量", min_value=1, max_value=9999, value=max(1, safe_int(row["数量"])))
                 new_note = st.text_input("備考", str(row.get("備考", "")))
 
                 c1, c2 = st.columns(2)
@@ -540,9 +467,7 @@ elif menu == "使用記録 検索・更新・削除":
                 st.success("使用記録を削除しました。※在庫は必要に応じて現在庫画面で調整してください。")
                 st.rerun()
 
-# ============================================================
-# 現在庫 登録・更新
-# ============================================================
+
 elif menu == "現在庫 登録・更新":
     st.subheader("現在庫 登録・更新")
 
@@ -553,10 +478,7 @@ elif menu == "現在庫 登録・更新":
 
     if not stock_status.empty:
         st.markdown("### 在庫状況")
-        st.dataframe(
-            stock_status[["状態", "物品", "現在庫", "最低在庫", "不足数"]],
-            use_container_width=True
-        )
+        st.dataframe(stock_status[["状態", "物品", "現在庫", "最低在庫", "不足数"]], use_container_width=True)
     else:
         st.info("物品マスタを登録してください。")
 
@@ -582,9 +504,7 @@ elif menu == "現在庫 登録・更新":
             st.success("在庫を更新しました。")
             st.rerun()
 
-# ============================================================
-# 月間集計
-# ============================================================
+
 elif menu == "月間集計":
     st.subheader("月間集計")
 
@@ -594,36 +514,22 @@ elif menu == "月間集計":
         work = usage.copy()
         work["日付"] = pd.to_datetime(work["日付"], errors="coerce")
 
-        ym = st.selectbox(
-            "対象月",
-            sorted(work["日付"].dt.strftime("%Y-%m").dropna().unique(), reverse=True)
-        )
+        ym = st.selectbox("対象月", sorted(work["日付"].dt.strftime("%Y-%m").dropna().unique(), reverse=True))
 
         target = work[work["日付"].dt.strftime("%Y-%m") == ym].copy()
         target["数量"] = target["数量"].apply(safe_int)
         target["金額"] = target["金額"].apply(safe_int)
 
         st.markdown("### 利用者別合計")
-        st.dataframe(
-            target.groupby("利用者")[["金額"]].sum().reset_index(),
-            use_container_width=True
-        )
+        st.dataframe(target.groupby("利用者")[["金額"]].sum().reset_index(), use_container_width=True)
 
         st.markdown("### 物品別合計")
-        st.dataframe(
-            target.groupby("物品")[["数量", "金額"]].sum().reset_index(),
-            use_container_width=True
-        )
+        st.dataframe(target.groupby("物品")[["数量", "金額"]].sum().reset_index(), use_container_width=True)
 
         st.markdown("### 利用者別・物品別")
-        st.dataframe(
-            target.groupby(["利用者", "物品"])[["数量", "金額"]].sum().reset_index(),
-            use_container_width=True
-        )
+        st.dataframe(target.groupby(["利用者", "物品"])[["数量", "金額"]].sum().reset_index(), use_container_width=True)
 
-# ============================================================
-# 請求書作成
-# ============================================================
+
 elif menu == "請求書作成":
     st.subheader("請求書作成")
 
@@ -633,15 +539,8 @@ elif menu == "請求書作成":
         work = usage.copy()
         work["日付"] = pd.to_datetime(work["日付"], errors="coerce")
 
-        ym = st.selectbox(
-            "請求月",
-            sorted(work["日付"].dt.strftime("%Y-%m").dropna().unique(), reverse=True)
-        )
-
-        user = st.selectbox(
-            "利用者",
-            sorted(work["利用者"].dropna().astype(str).unique())
-        )
+        ym = st.selectbox("請求月", sorted(work["日付"].dt.strftime("%Y-%m").dropna().unique(), reverse=True))
+        user = st.selectbox("利用者", sorted(work["利用者"].dropna().astype(str).unique()))
 
         target = work[
             (work["日付"].dt.strftime("%Y-%m") == ym) &
@@ -665,17 +564,9 @@ elif menu == "請求書作成":
         text += f"\n合計：{total:,}円"
 
         st.text_area("請求書本文", text, height=300)
+        st.download_button("請求書をダウンロード", text, file_name=f"invoice_{user}_{ym}.txt", mime="text/plain")
 
-        st.download_button(
-            "請求書をダウンロード",
-            text,
-            file_name=f"invoice_{user}_{ym}.txt",
-            mime="text/plain"
-        )
 
-# ============================================================
-# FEED発注候補
-# ============================================================
 elif menu == "FEED発注候補":
     st.subheader("FEED発注候補")
 
@@ -684,19 +575,13 @@ elif menu == "FEED発注候補":
     if stock_status.empty:
         st.info("物品マスタと在庫データを登録してください。")
     else:
-        order = stock_status[
-            stock_status["状態"].isin(["🔴 在庫0", "🔴 発注必要", "🟡 注意"])
-        ].copy()
+        order = stock_status[stock_status["状態"].isin(["🔴 在庫0", "🔴 発注必要", "🟡 注意"])].copy()
 
         if order.empty:
             st.success("現在、発注候補はありません。")
         else:
             st.warning("発注確認が必要な物品があります。")
-
-            show = order[[
-                "状態", "物品", "現在庫", "最低在庫", "不足数", "単価", "FEED商品URL"
-            ]]
-
+            show = order[["状態", "物品", "現在庫", "最低在庫", "不足数", "単価", "FEED商品URL"]]
             st.dataframe(show, use_container_width=True)
 
             st.markdown("### FEED商品ページ")
@@ -706,16 +591,9 @@ elif menu == "FEED発注候補":
                     st.link_button(f"{r['物品']} の商品ページを開く", url)
 
             csv = show.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                "発注候補CSVをダウンロード",
-                csv,
-                file_name="feed_order_candidates.csv",
-                mime="text/csv"
-            )
+            st.download_button("発注候補CSVをダウンロード", csv, file_name="feed_order_candidates.csv", mime="text/csv")
 
-# ============================================================
-# 利用者マスタ CRUD
-# ============================================================
+
 elif menu == "利用者マスタ 登録・更新・削除":
     st.subheader("利用者マスタ 登録・更新・削除")
 
@@ -736,10 +614,8 @@ elif menu == "利用者マスタ 登録・更新・削除":
                 "請求先": billing.strip(),
                 "備考": note.strip()
             }])
-
             users = pd.concat([users, new], ignore_index=True)
             save_df(users, USERS, USER_COLS)
-
             st.success("利用者を登録しました。")
             st.rerun()
 
@@ -747,7 +623,6 @@ elif menu == "利用者マスタ 登録・更新・削除":
     keyword = st.text_input("検索語（利用者名・請求先）", key="user_search")
 
     filtered = users.copy()
-
     if keyword:
         filtered = filtered[
             filtered["利用者名"].astype(str).str.contains(keyword, na=False) |
@@ -772,16 +647,13 @@ elif menu == "利用者マスタ 登録・更新・削除":
         if update:
             old_name = str(row["利用者名"])
             idx = users[users["利用者ID"].astype(str) == selected].index[0]
-            users.loc[idx, ["利用者名", "請求先", "備考"]] = [
-                new_name, new_billing, new_note
-            ]
+            users.loc[idx, ["利用者名", "請求先", "備考"]] = [new_name, new_billing, new_note]
 
             if old_name != new_name:
                 usage.loc[usage["利用者"].astype(str) == old_name, "利用者"] = new_name
                 save_df(usage, USAGE, USAGE_COLS)
 
             save_df(users, USERS, USER_COLS)
-
             st.success("利用者を更新しました。")
             st.rerun()
 
@@ -794,9 +666,7 @@ elif menu == "利用者マスタ 登録・更新・削除":
                 st.success("利用者を削除しました。")
                 st.rerun()
 
-# ============================================================
-# 物品マスタ CRUD
-# ============================================================
+
 elif menu == "物品マスタ 登録・更新・削除":
     st.subheader("物品マスタ 登録・更新・削除")
 
@@ -821,7 +691,6 @@ elif menu == "物品マスタ 登録・更新・削除":
                 "FEED商品URL": url.strip(),
                 "備考": note.strip()
             }])
-
             items = pd.concat([items, new], ignore_index=True)
             save_df(items, ITEMS, ITEM_COLS)
 
@@ -835,7 +704,6 @@ elif menu == "物品マスタ 登録・更新・削除":
     keyword = st.text_input("検索語（物品名・URL・備考）", key="item_search")
 
     filtered = items.copy()
-
     if keyword:
         filtered = filtered[
             filtered["物品名"].astype(str).str.contains(keyword, na=False) |
@@ -851,18 +719,8 @@ elif menu == "物品マスタ 登録・更新・削除":
 
         with st.form("item_edit"):
             new_name = st.text_input("物品名", str(row["物品名"]))
-            new_price = st.number_input(
-                "単価",
-                min_value=0,
-                max_value=999999,
-                value=safe_int(row["単価"])
-            )
-            new_min = st.number_input(
-                "最低在庫",
-                min_value=0,
-                max_value=99999,
-                value=safe_int(row["最低在庫"])
-            )
+            new_price = st.number_input("単価", min_value=0, max_value=999999, value=safe_int(row["単価"]))
+            new_min = st.number_input("最低在庫", min_value=0, max_value=99999, value=safe_int(row["最低在庫"]))
             new_url = st.text_input("FEED商品URL", str(row["FEED商品URL"]))
             new_note = st.text_input("備考", str(row["備考"]))
 
@@ -873,7 +731,6 @@ elif menu == "物品マスタ 登録・更新・削除":
         if update:
             old_name = str(row["物品名"])
             idx = items[items["物品ID"].astype(str) == selected].index[0]
-
             items.loc[idx, ["物品名", "単価", "最低在庫", "FEED商品URL", "備考"]] = [
                 new_name, new_price, new_min, new_url, new_note
             ]
@@ -884,7 +741,6 @@ elif menu == "物品マスタ 登録・更新・削除":
                 save_df(usage, USAGE, USAGE_COLS)
 
             save_df(items, ITEMS, ITEM_COLS)
-
             stock = sync_stock(items, stock)
             save_df(stock, STOCK, STOCK_COLS)
 
@@ -897,7 +753,6 @@ elif menu == "物品マスタ 登録・更新・削除":
             else:
                 items = items[items["物品ID"].astype(str) != selected]
                 save_df(items, ITEMS, ITEM_COLS)
-
                 stock = sync_stock(items, stock)
                 save_df(stock, STOCK, STOCK_COLS)
 
@@ -905,9 +760,6 @@ elif menu == "物品マスタ 登録・更新・削除":
                 st.rerun()
 
 
-# ============================================================
-# ログイン設定
-# ============================================================
 elif menu == "ログイン設定":
     st.subheader("ログイン設定")
     st.caption("管理者のみ利用できます。職員用ID・パスワードの変更や追加ができます。")
@@ -960,7 +812,7 @@ elif menu == "ログイン設定":
         row = accounts[accounts["ログインID"].astype(str) == selected_id].iloc[0]
 
         with st.form("account_edit"):
-            edit_id = st.text_input("ログインID", str(row["ログインID"]), disabled=True)
+            st.text_input("ログインID", str(row["ログインID"]), disabled=True)
             edit_pw = st.text_input("新しいパスワード", value=str(row["パスワード"]), type="password")
             edit_role = st.selectbox(
                 "権限",
@@ -998,49 +850,32 @@ elif menu == "ログイン設定":
                 st.success("アカウントを削除しました。")
                 st.rerun()
 
-    st.markdown("---")
-    st.warning("注意：このVer1.5ではパスワードはExcelに保存されます。施設内の簡易運用向けです。本格運用では暗号化やデータベース化を検討してください。")
+    st.warning("注意：このVer1.5.1ではパスワードはExcelに保存されます。施設内の簡易運用向けです。")
 
-# ============================================================
-# データ確認
-# ============================================================
+
 elif menu == "データ確認":
     st.subheader("データ確認")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["利用者", "物品", "使用記録", "在庫"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["利用者", "物品", "使用記録", "在庫", "ログイン"])
 
     with tab1:
         st.dataframe(users, use_container_width=True)
-        st.download_button(
-            "利用者CSV",
-            users.to_csv(index=False).encode("utf-8-sig"),
-            "users.csv",
-            "text/csv"
-        )
+        st.download_button("利用者CSV", users.to_csv(index=False).encode("utf-8-sig"), "users.csv", "text/csv")
 
     with tab2:
         st.dataframe(items, use_container_width=True)
-        st.download_button(
-            "物品CSV",
-            items.to_csv(index=False).encode("utf-8-sig"),
-            "items.csv",
-            "text/csv"
-        )
+        st.download_button("物品CSV", items.to_csv(index=False).encode("utf-8-sig"), "items.csv", "text/csv")
 
     with tab3:
         st.dataframe(usage, use_container_width=True)
-        st.download_button(
-            "使用記録CSV",
-            usage.to_csv(index=False).encode("utf-8-sig"),
-            "usage.csv",
-            "text/csv"
-        )
+        st.download_button("使用記録CSV", usage.to_csv(index=False).encode("utf-8-sig"), "usage.csv", "text/csv")
 
     with tab4:
         st.dataframe(stock, use_container_width=True)
-        st.download_button(
-            "在庫CSV",
-            stock.to_csv(index=False).encode("utf-8-sig"),
-            "stock.csv",
-            "text/csv"
-        )
+        st.download_button("在庫CSV", stock.to_csv(index=False).encode("utf-8-sig"), "stock.csv", "text/csv")
+
+    with tab5:
+        accounts = load_accounts()
+        masked = accounts.copy()
+        masked["パスワード"] = "********"
+        st.dataframe(masked, use_container_width=True)
