@@ -4,10 +4,10 @@ from datetime import date, datetime
 from pathlib import Path
 import calendar
 
-st.set_page_config(page_title="物品管理アプリ Ver1.4", layout="wide")
+st.set_page_config(page_title="物品管理アプリ Ver1.5", layout="wide")
 
 # ============================================================
-# 物品管理アプリ Ver1.4
+# 物品管理アプリ Ver1.5
 # ・管理者 / 職員 ログイン分岐
 # ・職員は「使用記録 登録」「使用記録 検索・更新・削除」のみ
 # ・管理者は全機能利用可能
@@ -22,24 +22,49 @@ USERS = DATA / "users.xlsx"
 ITEMS = DATA / "items.xlsx"
 USAGE = DATA / "usage.xlsx"
 STOCK = DATA / "stock.xlsx"
+ACCOUNTS_FILE = DATA / "accounts.xlsx"
 DASH_MEMO = DATA / "dashboard_memo.txt"
 
 USER_COLS = ["利用者ID", "利用者名", "請求先", "備考"]
 ITEM_COLS = ["物品ID", "物品名", "単価", "最低在庫", "FEED商品URL", "備考"]
 USAGE_COLS = ["記録ID", "日付", "利用者", "物品", "数量", "単価", "金額", "備考", "登録日時"]
 STOCK_COLS = ["物品", "現在庫", "更新日時"]
+ACCOUNT_COLS = ["ログインID", "パスワード", "権限", "表示名"]
 
 # ------------------------------------------------------------
 # ログイン設定
 # 初期ID / パスワード
 # 管理者：admin / admin123
 # 職員：staff / staff123
-# ※本番運用前に必ず変更してください
+# ※管理者ログイン後、「ログイン設定」メニューから変更できます。
 # ------------------------------------------------------------
-ACCOUNTS = {
-    "admin": {"password": "admin123", "role": "管理者", "name": "管理者"},
-    "staff": {"password": "staff123", "role": "職員", "name": "職員"},
-}
+
+def init_accounts():
+    """初回起動時にログイン用Excelを作成します。"""
+    if not ACCOUNTS_FILE.exists():
+        df = pd.DataFrame([
+            {"ログインID": "admin", "パスワード": "admin123", "権限": "管理者", "表示名": "管理者"},
+            {"ログインID": "staff", "パスワード": "staff123", "権限": "職員", "表示名": "職員"},
+        ], columns=ACCOUNT_COLS)
+        df.to_excel(ACCOUNTS_FILE, index=False)
+
+
+def load_accounts():
+    """ログイン情報をExcelから読み込みます。"""
+    init_accounts()
+    df = pd.read_excel(ACCOUNTS_FILE)
+    for c in ACCOUNT_COLS:
+        if c not in df.columns:
+            df[c] = ""
+    df = df[ACCOUNT_COLS].fillna("")
+    df.to_excel(ACCOUNTS_FILE, index=False)
+    return df
+
+
+def save_accounts(df):
+    """ログイン情報をExcelに保存します。"""
+    df = df[ACCOUNT_COLS].fillna("")
+    df.to_excel(ACCOUNTS_FILE, index=False)
 
 ADMIN_MENUS = [
     "管理ダッシュボード",
@@ -61,7 +86,7 @@ STAFF_MENUS = [
 
 
 def login_screen():
-    st.title("📦 物品管理アプリ Ver1.4")
+    st.title("📦 物品管理アプリ Ver1.5")
     st.subheader("ログイン")
 
     with st.form("login_form"):
@@ -70,12 +95,18 @@ def login_screen():
         ok = st.form_submit_button("ログイン")
 
     if ok:
-        account = ACCOUNTS.get(login_id)
-        if account and account["password"] == password:
+        accounts = load_accounts()
+        hit = accounts[
+            (accounts["ログインID"].astype(str) == str(login_id)) &
+            (accounts["パスワード"].astype(str) == str(password))
+        ]
+
+        if not hit.empty:
+            account = hit.iloc[0]
             st.session_state["logged_in"] = True
-            st.session_state["login_id"] = login_id
-            st.session_state["role"] = account["role"]
-            st.session_state["user_name"] = account["name"]
+            st.session_state["login_id"] = str(account["ログインID"])
+            st.session_state["role"] = str(account["権限"])
+            st.session_state["user_name"] = str(account["表示名"])
             st.success("ログインしました。")
             st.rerun()
         else:
@@ -257,8 +288,8 @@ save_df(usage, USAGE, USAGE_COLS)
 stock = sync_stock(items, stock)
 save_df(stock, STOCK, STOCK_COLS)
 
-st.title("📦 物品管理アプリ Ver1.4")
-st.caption("管理者・職員ログイン対応／在庫ショート予防／FEED発注補助／月末請求")
+st.title("📦 物品管理アプリ Ver1.5")
+st.caption("管理者パスワード設定対応／職員権限制限／在庫ショート予防／月末請求")
 
 role = st.session_state.get("role", "職員")
 available_menus = ADMIN_MENUS if role == "管理者" else STAFF_MENUS
@@ -872,6 +903,103 @@ elif menu == "物品マスタ 登録・更新・削除":
 
                 st.success("物品を削除しました。")
                 st.rerun()
+
+
+# ============================================================
+# ログイン設定
+# ============================================================
+elif menu == "ログイン設定":
+    st.subheader("ログイン設定")
+    st.caption("管理者のみ利用できます。職員用ID・パスワードの変更や追加ができます。")
+
+    if st.session_state.get("role") != "管理者":
+        st.error("このメニューは管理者のみ使用できます。")
+        st.stop()
+
+    accounts = load_accounts()
+
+    st.markdown("### 現在のログイン一覧")
+    safe_view = accounts.copy()
+    safe_view["パスワード"] = "********"
+    st.dataframe(safe_view, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### 新規アカウント追加")
+
+    with st.form("account_create"):
+        new_id = st.text_input("ログインID")
+        new_pw = st.text_input("パスワード", type="password")
+        new_role = st.selectbox("権限", ["職員", "管理者"])
+        new_name = st.text_input("表示名")
+        create_ok = st.form_submit_button("追加する")
+
+    if create_ok:
+        if not new_id.strip() or not new_pw.strip():
+            st.error("ログインIDとパスワードを入力してください。")
+        elif new_id.strip() in accounts["ログインID"].astype(str).values:
+            st.error("同じログインIDがすでに存在します。")
+        else:
+            new_row = pd.DataFrame([{
+                "ログインID": new_id.strip(),
+                "パスワード": new_pw.strip(),
+                "権限": new_role,
+                "表示名": new_name.strip() if new_name.strip() else new_id.strip(),
+            }])
+            accounts = pd.concat([accounts, new_row], ignore_index=True)
+            save_accounts(accounts)
+            st.success("アカウントを追加しました。")
+            st.rerun()
+
+    st.markdown("---")
+    st.markdown("### パスワード・権限の変更 / 削除")
+
+    if accounts.empty:
+        st.info("アカウントがありません。")
+    else:
+        selected_id = st.selectbox("変更するログインID", accounts["ログインID"].astype(str))
+        row = accounts[accounts["ログインID"].astype(str) == selected_id].iloc[0]
+
+        with st.form("account_edit"):
+            edit_id = st.text_input("ログインID", str(row["ログインID"]), disabled=True)
+            edit_pw = st.text_input("新しいパスワード", value=str(row["パスワード"]), type="password")
+            edit_role = st.selectbox(
+                "権限",
+                ["職員", "管理者"],
+                index=0 if str(row["権限"]) == "職員" else 1
+            )
+            edit_name = st.text_input("表示名", str(row["表示名"]))
+
+            c1, c2 = st.columns(2)
+            update_ok = c1.form_submit_button("更新する")
+            delete_ok = c2.form_submit_button("削除する")
+
+        if update_ok:
+            idx = accounts[accounts["ログインID"].astype(str) == selected_id].index[0]
+            accounts.loc[idx, ["パスワード", "権限", "表示名"]] = [
+                edit_pw.strip(),
+                edit_role,
+                edit_name.strip()
+            ]
+            save_accounts(accounts)
+            st.success("ログイン情報を更新しました。")
+            st.rerun()
+
+        if delete_ok:
+            admin_count = len(accounts[accounts["権限"].astype(str) == "管理者"])
+            target_role = str(row["権限"])
+
+            if str(row["ログインID"]) == st.session_state.get("login_id"):
+                st.error("現在ログイン中の自分自身は削除できません。")
+            elif target_role == "管理者" and admin_count <= 1:
+                st.error("管理者が0人になるため削除できません。")
+            else:
+                accounts = accounts[accounts["ログインID"].astype(str) != selected_id]
+                save_accounts(accounts)
+                st.success("アカウントを削除しました。")
+                st.rerun()
+
+    st.markdown("---")
+    st.warning("注意：このVer1.5ではパスワードはExcelに保存されます。施設内の簡易運用向けです。本格運用では暗号化やデータベース化を検討してください。")
 
 # ============================================================
 # データ確認
